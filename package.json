@@ -1,4 +1,5 @@
-{ "name": "pimatic-kodi",
+{
+  "name": "pimatic-kodi",
   "description": "Pimatic plugin for XBMC/Kodi",
   "author": "Nick van Alst <Fjux>",
   "main": "kodi-plugin",
@@ -16,6 +17,7 @@
   },
   "configSchema": "kodi-plugin-config-schema.coffee",
   "dependencies": {
+    "xbmc": "^0.4.1"
   },
   "peerDependencies": {
     "pimatic": "0.8.*"
