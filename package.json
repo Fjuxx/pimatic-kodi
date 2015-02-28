@@ -13,7 +13,7 @@
   "private": true,
   "repository": {
     "type": "git",
-    "url": "git://github.com/Fjux/pimatic-plugin-template.git"
+    "url": "git://github.com/Fjuxx/pimatic-kodi.git"
   },
   "configSchema": "kodi-plugin-config-schema.coffee",
   "dependencies": {
