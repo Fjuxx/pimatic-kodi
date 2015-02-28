@@ -6,7 +6,7 @@
   "files": [
     "kodi-plugin.coffee",
     "README.md",
-    "kodi-plugin-config-schema.coffee"
+    "kodi-plugin-config-schema.coffee",
     "device-config-schema.coffee"
   ],
   "version": "0.0.2",
