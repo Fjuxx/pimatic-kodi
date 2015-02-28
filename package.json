@@ -17,7 +17,7 @@
   },
   "configSchema": "kodi-plugin-config-schema.coffee",
   "dependencies": {
-    "xbmc": "^0.4.1"
+    "xbmc": "git+https://github.com/Fjuxx/node-xbmc/"
   },
   "peerDependencies": {
     "pimatic": "0.8.*"
