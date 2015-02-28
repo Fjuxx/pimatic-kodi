@@ -7,10 +7,11 @@
     "kodi-plugin.coffee",
     "README.md",
     "kodi-plugin-config-schema.coffee"
+    "device-config-schema.coffee"
   ],
   "version": "0.0.1",
   "homepage": "http://www.kodi.com",
-  "private": true,
+  "private": false,
   "repository": {
     "type": "git",
     "url": "git://github.com/Fjuxx/pimatic-kodi.git"
