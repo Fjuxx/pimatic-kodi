@@ -4,9 +4,11 @@ var bind = function(fn, me){ return function(){ return fn.apply(me, arguments); 
   hasProp = {}.hasOwnProperty;
 
 module.exports = function(env) {
-  var KodiPlayer, KodiPlugin, Promise, TCPConnection, XbmcApi, assert, kodiPlugin, ref;
+  var KodiNextActionHandler, KodiNextActionProvider, KodiPauseActionHandler, KodiPauseActionProvider, KodiPlayActionHandler, KodiPlayActionProvider, KodiPlayer, KodiPlugin, KodiPrevActionHandler, KodiPrevActionProvider, M, Promise, TCPConnection, XbmcApi, _, assert, kodiPlugin, ref;
   Promise = env.require('bluebird');
   assert = env.require('cassert');
+  M = env.matcher;
+  _ = env.require('lodash');
   ref = require('xbmc'), TCPConnection = ref.TCPConnection, XbmcApi = ref.XbmcApi;
   KodiPlugin = (function(superClass) {
     extend(KodiPlugin, superClass);
@@ -22,7 +24,7 @@ module.exports = function(env) {
       this.config = config1;
       env.logger.info("Kodi plugin started");
       deviceConfigDef = require("./device-config-schema");
-      return this.framework.deviceManager.registerDeviceClass("KodiPlayer", {
+      this.framework.deviceManager.registerDeviceClass("KodiPlayer", {
         configDef: deviceConfigDef.KodiPlayer,
         createCallback: (function(_this) {
           return function(config) {
@@ -30,6 +32,10 @@ module.exports = function(env) {
           };
         })(this)
       });
+      this.framework.ruleManager.addActionProvider(new KodiPauseActionProvider(this.framework));
+      this.framework.ruleManager.addActionProvider(new KodiPlayActionProvider(this.framework));
+      this.framework.ruleManager.addActionProvider(new KodiPrevActionProvider(this.framework));
+      return this.framework.ruleManager.addActionProvider(new KodiNextActionProvider(this.framework));
     };
 
     return KodiPlugin;
@@ -104,15 +110,26 @@ module.exports = function(env) {
         debug: env.logger.debug
       });
       this.kodi.setConnection(connection);
-      this.kodi.on('connection:open', function() {
-        return env.logger.info('Kodi connected');
-      });
+      this.kodi.on('connection:open', (function(_this) {
+        return function() {
+          env.logger.info('Kodi connected');
+          return _this._updateInfo();
+        };
+      })(this));
       this.kodi.on('connection:close', function() {
         return env.logger.info('Kodi Disconnected');
       });
-      this.kodi.on('connection:notification', function(notification) {
-        return env.logger.debug('Received notification:', notification);
-      });
+      this.kodi.on('connection:notification', (function(_this) {
+        return function(notification) {
+          return env.logger.debug('Received notification:', notification);
+        };
+      })(this));
+      this.kodi.on('notification:play', (function(_this) {
+        return function(data) {
+          env.logger.debug('onPlay data: ', data.params.data.item);
+          return _this._parseItem(data.params.data.item);
+        };
+      })(this));
       KodiPlayer.__super__.constructor.call(this);
     }
 
@@ -133,23 +150,23 @@ module.exports = function(env) {
     };
 
     KodiPlayer.prototype.play = function() {
-      return this._sendCommandAction('play');
+      return this.kodi.player.playPause();
     };
 
     KodiPlayer.prototype.pause = function() {
-      return this._sendCommandAction('pause');
+      return this.kodi.player.playPause();
     };
 
     KodiPlayer.prototype.stop = function() {
-      return this._sendCommandAction('stop');
+      return this.kodi.player.stop();
     };
 
     KodiPlayer.prototype.previous = function() {
-      return env.logger.debug('previous not implemented');
+      return this.kodi.player.previous();
     };
 
     KodiPlayer.prototype.next = function() {
-      return env.logger.debug('next not implemented');
+      return this.kodi.player.next();
     };
 
     KodiPlayer.prototype.setVolume = function(volume) {
@@ -189,20 +206,314 @@ module.exports = function(env) {
     };
 
     KodiPlayer.prototype._getStatus = function() {
-      return env.logger.debug('get status');
+      env.logger.debug('get status');
+      return this._setState('state');
     };
 
     KodiPlayer.prototype._getCurrentSong = function() {
-      return env.logger.debug('_getCurrentSong not implemented');
+      env.logger.debug('_getCurrentSong ');
+      return this.kodi.player.getCurrentlyPlaying((function(_this) {
+        return function(info) {
+          env.logger.debug(info);
+          _this._setCurrentTitle(info.title != null ? info.title : "");
+          return _this._setCurrentArtist(info.artist != null ? info.artist : "");
+        };
+      })(this));
     };
 
     KodiPlayer.prototype._sendCommandAction = function(action) {
       return this.kodi.input.ExecuteAction(action);
     };
 
+    KodiPlayer.prototype._parseItem = function(itm) {
+      var artist, ref1, ref2, ref3, title, type;
+      artist = (ref1 = (ref2 = itm.artist) != null ? ref2[0] : void 0) != null ? ref1 : itm.artist;
+      title = itm.title;
+      type = (ref3 = itm.type) != null ? ref3 : '';
+      env.logger.debug(title);
+      if (type === 'song' || ((title != null) && (artist != null))) {
+        this._setCurrentTitle(title != null ? title : "");
+        return this._setCurrentArtist(artist != null ? artist : "");
+      } else {
+        return this._updateInfo();
+      }
+    };
+
     return KodiPlayer;
 
   })(env.devices.Device);
+  KodiPauseActionProvider = (function(superClass) {
+    extend(KodiPauseActionProvider, superClass);
+
+    function KodiPauseActionProvider(framework) {
+      this.framework = framework;
+      this.parseAction = bind(this.parseAction, this);
+    }
+
+
+    /*
+    This function handles action in the form of `execute "some string"`
+     */
+
+    KodiPauseActionProvider.prototype.parseAction = function(input, context) {
+      var device, kodiPlayers, m, match, onDeviceMatch, retVar;
+      retVar = null;
+      kodiPlayers = _(this.framework.deviceManager.devices).values().filter((function(_this) {
+        return function(device) {
+          return device.hasAction("play");
+        };
+      })(this)).value();
+      if (kodiPlayers.length === 0) {
+        return;
+      }
+      device = null;
+      match = null;
+      onDeviceMatch = (function(m, d) {
+        device = d;
+        return match = m.getFullMatch();
+      });
+      m = M(input, context).match('pause ').matchDevice(kodiPlayers, onDeviceMatch);
+      if (match != null) {
+        assert(device != null);
+        assert(typeof match === "string");
+        return {
+          token: match,
+          nextInput: input.substring(match.length),
+          actionHandler: new KodiPauseActionHandler(device)
+        };
+      } else {
+        return null;
+      }
+    };
+
+    return KodiPauseActionProvider;
+
+  })(env.actions.ActionProvider);
+  KodiPauseActionHandler = (function(superClass) {
+    extend(KodiPauseActionHandler, superClass);
+
+    function KodiPauseActionHandler(device1) {
+      this.device = device1;
+      this.executeAction = bind(this.executeAction, this);
+    }
+
+    KodiPauseActionHandler.prototype.executeAction = function(simulate) {
+      return (simulate ? Promise.resolve(__("would pause %s", this.device.name)) : this.device.pause().then((function(_this) {
+        return function() {
+          return __("paused %s", _this.device.name);
+        };
+      })(this)));
+    };
+
+    return KodiPauseActionHandler;
+
+  })(env.actions.ActionHandler);
+  KodiPlayActionProvider = (function(superClass) {
+    extend(KodiPlayActionProvider, superClass);
+
+    function KodiPlayActionProvider(framework) {
+      this.framework = framework;
+      this.parseAction = bind(this.parseAction, this);
+    }
+
+
+    /*
+    This function handles action in the form of `execute "some string"`
+     */
+
+    KodiPlayActionProvider.prototype.parseAction = function(input, context) {
+      var device, kodiPlayers, m, match, onDeviceMatch, retVar;
+      retVar = null;
+      kodiPlayers = _(this.framework.deviceManager.devices).values().filter((function(_this) {
+        return function(device) {
+          return device.hasAction("play");
+        };
+      })(this)).value();
+      if (kodiPlayers.length === 0) {
+        return;
+      }
+      device = null;
+      match = null;
+      onDeviceMatch = (function(m, d) {
+        device = d;
+        return match = m.getFullMatch();
+      });
+      m = M(input, context).match('play ').matchDevice(kodiPlayers, onDeviceMatch);
+      if (match != null) {
+        assert(device != null);
+        assert(typeof match === "string");
+        return {
+          token: match,
+          nextInput: input.substring(match.length),
+          actionHandler: new KodiPlayActionHandler(device)
+        };
+      } else {
+        return null;
+      }
+    };
+
+    return KodiPlayActionProvider;
+
+  })(env.actions.ActionProvider);
+  KodiPlayActionHandler = (function(superClass) {
+    extend(KodiPlayActionHandler, superClass);
+
+    function KodiPlayActionHandler(device1) {
+      this.device = device1;
+      this.executeAction = bind(this.executeAction, this);
+    }
+
+    KodiPlayActionHandler.prototype.executeAction = function(simulate) {
+      return (simulate ? Promise.resolve(__("would play %s", this.device.name)) : this.device.play().then((function(_this) {
+        return function() {
+          return __("playing %s", _this.device.name);
+        };
+      })(this)));
+    };
+
+    return KodiPlayActionHandler;
+
+  })(env.actions.ActionHandler);
+  KodiNextActionProvider = (function(superClass) {
+    extend(KodiNextActionProvider, superClass);
+
+    function KodiNextActionProvider(framework) {
+      this.framework = framework;
+      this.parseAction = bind(this.parseAction, this);
+    }
+
+
+    /*
+    This function handles action in the form of `execute "some string"`
+     */
+
+    KodiNextActionProvider.prototype.parseAction = function(input, context) {
+      var device, kodiPlayers, m, match, onDeviceMatch, retVar, valueTokens, volume;
+      retVar = null;
+      volume = null;
+      kodiPlayers = _(this.framework.deviceManager.devices).values().filter((function(_this) {
+        return function(device) {
+          return device.hasAction("play");
+        };
+      })(this)).value();
+      if (kodiPlayers.length === 0) {
+        return;
+      }
+      device = null;
+      valueTokens = null;
+      match = null;
+      onDeviceMatch = (function(m, d) {
+        device = d;
+        return match = m.getFullMatch();
+      });
+      m = M(input, context).match(['play next', 'next ']).match(" song ", {
+        optional: true
+      }).match("on ").matchDevice(kodiPlayers, onDeviceMatch);
+      if (match != null) {
+        assert(device != null);
+        assert(typeof match === "string");
+        return {
+          token: match,
+          nextInput: input.substring(match.length),
+          actionHandler: new KodiNextActionHandler(device)
+        };
+      } else {
+        return null;
+      }
+    };
+
+    return KodiNextActionProvider;
+
+  })(env.actions.ActionProvider);
+  KodiNextActionHandler = (function(superClass) {
+    extend(KodiNextActionHandler, superClass);
+
+    function KodiNextActionHandler(device1) {
+      this.device = device1;
+      this.executeAction = bind(this.executeAction, this);
+    }
+
+    KodiNextActionHandler.prototype.executeAction = function(simulate) {
+      return (simulate ? Promise.resolve(__("would play next track of %s", this.device.name)) : this.device.next().then((function(_this) {
+        return function() {
+          return __("play next track of %s", _this.device.name);
+        };
+      })(this)));
+    };
+
+    return KodiNextActionHandler;
+
+  })(env.actions.ActionHandler);
+  KodiPrevActionProvider = (function(superClass) {
+    extend(KodiPrevActionProvider, superClass);
+
+    function KodiPrevActionProvider(framework) {
+      this.framework = framework;
+      this.parseAction = bind(this.parseAction, this);
+    }
+
+
+    /*
+    This function handles action in the form of `execute "some string"`
+     */
+
+    KodiPrevActionProvider.prototype.parseAction = function(input, context) {
+      var device, kodiPlayers, m, match, onDeviceMatch, retVar, valueTokens, volume;
+      retVar = null;
+      volume = null;
+      kodiPlayers = _(this.framework.deviceManager.devices).values().filter((function(_this) {
+        return function(device) {
+          return device.hasAction("play");
+        };
+      })(this)).value();
+      if (kodiPlayers.length === 0) {
+        return;
+      }
+      device = null;
+      valueTokens = null;
+      match = null;
+      onDeviceMatch = (function(m, d) {
+        device = d;
+        return match = m.getFullMatch();
+      });
+      m = M(input, context).match(['play previous', 'previous ']).match(" song ", {
+        optional: true
+      }).match("on ").matchDevice(kodiPlayers, onDeviceMatch);
+      if (match != null) {
+        assert(device != null);
+        assert(typeof match === "string");
+        return {
+          token: match,
+          nextInput: input.substring(match.length),
+          actionHandler: new KodiNextActionHandler(device)
+        };
+      } else {
+        return null;
+      }
+    };
+
+    return KodiPrevActionProvider;
+
+  })(env.actions.ActionProvider);
+  KodiPrevActionHandler = (function(superClass) {
+    extend(KodiPrevActionHandler, superClass);
+
+    function KodiPrevActionHandler(device1) {
+      this.device = device1;
+      this.executeAction = bind(this.executeAction, this);
+    }
+
+    KodiPrevActionHandler.prototype.executeAction = function(simulate) {
+      return (simulate ? Promise.resolve(__("would play previous track of %s", this.device.name)) : this.device.previous().then((function(_this) {
+        return function() {
+          return __("play previous track of %s", _this.device.name);
+        };
+      })(this)));
+    };
+
+    return KodiPrevActionHandler;
+
+  })(env.actions.ActionHandler);
   kodiPlugin = new KodiPlugin;
   return kodiPlugin;
 };
