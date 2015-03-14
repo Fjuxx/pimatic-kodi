@@ -126,8 +126,19 @@ module.exports = function(env) {
       })(this));
       this.kodi.on('notification:play', (function(_this) {
         return function(data) {
+          _this._setState('playing');
           env.logger.debug('onPlay data: ', data.params.data.item);
           return _this._parseItem(data.params.data.item);
+        };
+      })(this));
+      this.kodi.on('notification:pause', (function(_this) {
+        return function() {
+          return _this._setState('paused');
+        };
+      })(this));
+      this.kodi.on('api:playerStopped', (function(_this) {
+        return function() {
+          return _this._setState('stopped');
         };
       })(this));
       KodiPlayer.__super__.constructor.call(this);
@@ -227,15 +238,17 @@ module.exports = function(env) {
 
     KodiPlayer.prototype._parseItem = function(itm) {
       var artist, ref1, ref2, ref3, title, type;
-      artist = (ref1 = (ref2 = itm.artist) != null ? ref2[0] : void 0) != null ? ref1 : itm.artist;
-      title = itm.title;
-      type = (ref3 = itm.type) != null ? ref3 : '';
-      env.logger.debug(title);
-      if (type === 'song' || ((title != null) && (artist != null))) {
-        this._setCurrentTitle(title != null ? title : "");
-        return this._setCurrentArtist(artist != null ? artist : "");
-      } else {
-        return this._updateInfo();
+      if (itm != null) {
+        artist = (ref1 = (ref2 = itm.artist) != null ? ref2[0] : void 0) != null ? ref1 : itm.artist;
+        title = itm.title;
+        type = (ref3 = itm.type) != null ? ref3 : '';
+        env.logger.debug(title);
+        if (type === 'song' || ((title != null) && (artist != null))) {
+          this._setCurrentTitle(title != null ? title : "");
+          return this._setCurrentArtist(artist != null ? artist : "");
+        } else {
+          return this._updateInfo();
+        }
       }
     };
 

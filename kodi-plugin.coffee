@@ -116,8 +116,14 @@ module.exports = (env) ->
       @kodi.on 'connection:notification', (notification) => 
         env.logger.debug 'Received notification:', notification
       @kodi.on 'notification:play', (data) =>
+        @_setState 'playing'
         env.logger.debug 'onPlay data: ', data.params.data.item
         @_parseItem data.params.data.item
+
+      @kodi.on 'notification:pause', =>
+        @_setState 'paused'
+      @kodi.on 'api:playerStopped', =>
+        @_setState 'stopped'
         #@_updateInfo()
         # return @_updateInfo().catch( (err) =>
         #   env.logger.error "Error updateinfo: #{err}"
@@ -177,15 +183,16 @@ module.exports = (env) ->
       @kodi.input.ExecuteAction action
 
     _parseItem: (itm) ->
-      artist = itm.artist?[0] ? itm.artist
-      title = itm.title
-      type = itm.type ? ''
-      env.logger.debug title
-      if type == 'song' || (title? && artist?)
-        @_setCurrentTitle(if title? then title else "")
-        @_setCurrentArtist(if artist? then artist else "")
-      else
-        @_updateInfo()
+      if itm?
+        artist = itm.artist?[0] ? itm.artist
+        title = itm.title
+        type = itm.type ? ''
+        env.logger.debug title
+        if type == 'song' || (title? && artist?)
+          @_setCurrentTitle(if title? then title else "")
+          @_setCurrentArtist(if artist? then artist else "")
+        else
+          @_updateInfo()
 
   # Pause play volume actions
   class KodiPauseActionProvider extends env.actions.ActionProvider 
