@@ -172,8 +172,8 @@ module.exports = (env) ->
         @emit 'volume', volume
 
     _getStatus: () ->
-      env.logger.debug 'get status'
-      @_setState 'state'
+      env.logger.debug 'get status ignored'
+      #@_setState 'state'
 
     _getCurrentSong: () ->
       env.logger.debug '_getCurrentSong '
