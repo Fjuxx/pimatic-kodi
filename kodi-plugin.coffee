@@ -15,6 +15,8 @@ module.exports = (env) ->
   # Require the [cassert library](https://github.com/rhoot/cassert).
   assert = env.require 'cassert'
 
+  VERBOSE = false
+
   M = env.matcher
   _ = env.require('lodash')
   
@@ -28,9 +30,6 @@ module.exports = (env) ->
   # ###KodiPlugin class
   class KodiPlugin extends env.plugins.Plugin
 
-    # ####init()
-    # The `init` function is called by the framework to ask your plugin to initialise.
-    #  
     # #####params:
     #  * `app` is the [express] instance the framework is using.
     #  * `framework` the framework itself
@@ -52,13 +51,15 @@ module.exports = (env) ->
       #@framework.ruleManager.addActionProvider(new MpdVolumeActionProvider(@framework))
       @framework.ruleManager.addActionProvider(new KodiPrevActionProvider(@framework))
       @framework.ruleManager.addActionProvider(new KodiNextActionProvider(@framework))
+      @framework.ruleManager.addPredicateProvider(new PlayingPredicateProvider(@framework))
+
 
 
 
 
 
   class KodiPlayer extends env.devices.Device
-    _state: null
+    _state: "stopped"
     _currentTitle: null
     _currentArtist: null
     _volume: null
@@ -101,18 +102,24 @@ module.exports = (env) ->
       connection = new TCPConnection
         host: @config.host
         port: @config.port
-        verbose: true
+        verbose: VERBOSE
+
+      _state = 'stopped'
 
       @kodi = new XbmcApi
         debug: env.logger.debug
 
       @kodi.setConnection connection  
-      #  connection: connection
       @kodi.on 'connection:open',                        => 
         env.logger.info 'Kodi connected'
-        @_updateInfo()
-        
-      @kodi.on 'connection:close',                       -> env.logger.info 'Kodi Disconnected'
+        @_updateInfo()        
+      @kodi.on 'connection:close',                       => 
+        env.logger.info 'Kodi Disconnected, Attempting reconnect'
+        connection = new TCPConnection
+          host: @config.host
+          port: @config.port
+          verbose: VERBOSE
+        @kodi.setConnection connection
       @kodi.on 'connection:notification', (notification) => 
         env.logger.debug 'Received notification:', notification
       @kodi.on 'notification:play', (data) =>
@@ -124,13 +131,9 @@ module.exports = (env) ->
         @_setState 'paused'
       @kodi.on 'api:playerStopped', =>
         @_setState 'stopped'
-        #@_updateInfo()
-        # return @_updateInfo().catch( (err) =>
-        #   env.logger.error "Error updateinfo: #{err}"
-        #   env.logger.debug err
-        # )
+        @_setCurrentTitle("")
+        @_setCurrentArtist("")
         
-
       super()
 
     getState: () ->
@@ -397,7 +400,64 @@ module.exports = (env) ->
         else
           @device.previous().then( => __("play previous track of %s", @device.name) )
       ) 
+  class PlayingPredicateProvider extends env.predicates.PredicateProvider
+    constructor: (@framework) ->
+
+    parsePredicate: (input, context) ->  
+      kodiDevices = _(@framework.deviceManager.devices).values()
+        .filter((device) => device.hasAttribute( 'state')).value()
+
+      device = null
+      state = null
+      negated = null
+      match = null
+
+      M(input, context)
+        .matchDevice(kodiDevices, (next, d) =>
+          next.match([' is', ' reports', ' signals'])
+            .match([' playing', ' stopped',' paused', ' not playing'], (m, s) =>
+              if device? and device.id isnt d.id
+                context?.addError(""""#{input.trim()}" is ambiguous.""")
+                return
+              device = d
+              state = s.trim() # is one of  'playing', 'stopped', 'paused', 'not playing'
+              match = m.getFullMatch()
+            )
+      )
       
+      if match?
+        assert device?
+        assert state?
+        assert typeof match is "string"
+        return {
+          token: match
+          nextInput: input.substring(match.length)
+          predicateHandler: new PlayingPredicateHandler(device, state)
+        }
+      else
+        return null   
+
+  class PlayingPredicateHandler extends env.predicates.PredicateHandler
+
+    constructor: (@device, @state) ->
+
+    setup: -> 
+      @playingListener = (p) => 
+        env.logger.debug "checking for: #{@state} == #{p}"
+        if (@state is p)
+          @emit 'change', (@state is p)
+        else if @state is "not playing"
+          @emit 'change', (p isnt "playing")
+      @device.on 'state', @playingListener
+      super()
+    getValue: -> 
+      return @device.getUpdatedAttributeValue('state').then( 
+        (p) => (if (@state is p) then not p else p)
+      )
+    destroy: -> 
+      @device.removeListener "state", @playingListener
+      super()
+    getType: -> 'state' 
 
 
   # Create a instance of  Kodiplugin
