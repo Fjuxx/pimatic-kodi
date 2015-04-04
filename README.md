@@ -33,8 +33,8 @@ if buttonPrev is pressed then play previous song on Kodi
 if currentArtist of Kodi = "Justin Bieber" then play next song on Kodi
 
 Currently no predicates for the mpd plugin. If you would like to do something when the state changes u could use the attribute predicate.<br>
-if $Kodi.state equals \"play\" then switch speakers on <br>
-if $Kodi.state equals \"pause\" then switch speakers off <br>
+if Kodi is playing then switch speakers on <br>
+if Kodi is stopped then switch speakers off <br>
 
 
 ###Note's
@@ -48,11 +48,7 @@ https://github.com/Fjuxx/node-xbmc
 
 ###TO DO
 - Add volume controls
-- fix for Soundcloud (this currently crashes Pimatic!)
-- Better updating for songs
-    - atm it will send a update request to Kodi when a notification happend.....
 - Check how it works with movies
-- Playing events. (for rules)
 
 - create new device (template)
 - better support for multimedia (now focused @ music)
