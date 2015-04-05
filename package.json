@@ -9,7 +9,7 @@
     "kodi-plugin-config-schema.coffee",
     "device-config-schema.coffee"
   ],
-  "version": "0.0.6",
+  "version": "0.0.7",
   "homepage": "http://www.kodi.com",
   "private": false,
   "repository": {

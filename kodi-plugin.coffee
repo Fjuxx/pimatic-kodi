@@ -114,12 +114,14 @@ module.exports = (env) ->
         env.logger.info 'Kodi connected'
         @_updateInfo()        
       @kodi.on 'connection:close',                       => 
-        env.logger.info 'Kodi Disconnected, Attempting reconnect'
-        connection = new TCPConnection
-          host: @config.host
-          port: @config.port
-          verbose: VERBOSE
-        @kodi.setConnection connection
+        setTimeout () =>
+          env.logger.info 'Kodi Disconnected, Attempting reconnect'
+          connection = new TCPConnection
+            host: @config.host
+            port: @config.port
+            verbose: VERBOSE
+          @kodi.setConnection connection 
+        , 60000
       @kodi.on 'connection:notification', (notification) => 
         env.logger.debug 'Received notification:', notification
       @kodi.on 'notification:play', (data) =>
