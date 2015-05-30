@@ -4,7 +4,7 @@ var TCPConnection, XbmcApi, connection, ref, xbmc;
 ref = require('xbmc'), TCPConnection = ref.TCPConnection, XbmcApi = ref.XbmcApi;
 
 connection = new TCPConnection({
-  host: '192.168.178.110',
+  host: '192.168.178.111',
   port: 9090,
   verbose: true
 });
@@ -14,43 +14,12 @@ xbmc = new XbmcApi;
 xbmc.setConnection(connection);
 
 xbmc.on('connection:open', function() {
-  console.log('Connection is open');
-  xbmc.player.mixin(xbmc);
-  return setTimeout((function() {
-    console.log('PlayPause');
-    return xbmc.player.playPause(function() {
-      return console.log('done');
-    });
-  }), 1000);
+  return console.log('Connection is open');
 });
 
-setTimeout(((function(_this) {
-  return function() {
-    var dfd;
-    dfd = xbmc.send('Player.GetActivePlayers');
-    return dfd.then(function(data) {
-      var playerId, ref1, ref2, ref3, ref4, ref5, ref6;
-      playerId = (ref1 = (ref2 = (ref3 = data.result) != null ? ref3.playerid : void 0) != null ? ref2 : (ref4 = data.result[0]) != null ? ref4.playerid : void 0) != null ? ref1 : (ref5 = data.player) != null ? ref5.playerid : void 0;
-      console.log((ref6 = data.result[0]) != null ? ref6.playerid : void 0);
-      console.log(playerId);
-      dfd = xbmc.send('Player.PlayPause', {
-        playerid: playerId
-      });
-      return dfd.then(function(data) {
-        return console.log('done');
-      });
-    });
-  };
-})(this)), 5000);
-
-setTimeout(((function(_this) {
-  return function() {
-    return xbmc.player.getActivePlayers(function(data) {
-      var dfd, playerId, ref1, ref2, ref3, ref4, ref5;
-      playerId = (ref1 = (ref2 = (ref3 = data.result) != null ? ref3.playerid : void 0) != null ? ref2 : (ref4 = data.result[0]) != null ? ref4.playerid : void 0) != null ? ref1 : (ref5 = data.player) != null ? ref5.playerid : void 0;
-      return dfd = xbmc.player.api.send('Player.PlayPause', {
-        playerid: playerId
-      });
-    });
-  };
-})(this)), 3000);
+setTimeout((function() {
+  console.log('PlayPause');
+  return xbmc.player.playPause().then(function() {
+    return console.log('done');
+  });
+}), 1000);

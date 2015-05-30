@@ -4,12 +4,13 @@ var bind = function(fn, me){ return function(){ return fn.apply(me, arguments); 
   hasProp = {}.hasOwnProperty;
 
 module.exports = function(env) {
-  var KodiNextActionHandler, KodiNextActionProvider, KodiPauseActionHandler, KodiPauseActionProvider, KodiPlayActionHandler, KodiPlayActionProvider, KodiPlayer, KodiPlugin, KodiPrevActionHandler, KodiPrevActionProvider, M, Promise, TCPConnection, XbmcApi, _, assert, kodiPlugin, ref;
+  var KodiNextActionHandler, KodiNextActionProvider, KodiPauseActionHandler, KodiPauseActionProvider, KodiPlayActionHandler, KodiPlayActionProvider, KodiPlayer, KodiPlugin, KodiPrevActionHandler, KodiPrevActionProvider, M, PlayingPredicateHandler, PlayingPredicateProvider, Promise, TCPConnection, VERBOSE, XbmcApi, _, assert, kodiPlugin, ref;
   Promise = env.require('bluebird');
   assert = env.require('cassert');
+  ref = require('xbmc'), TCPConnection = ref.TCPConnection, XbmcApi = ref.XbmcApi;
+  VERBOSE = false;
   M = env.matcher;
   _ = env.require('lodash');
-  ref = require('xbmc'), TCPConnection = ref.TCPConnection, XbmcApi = ref.XbmcApi;
   KodiPlugin = (function(superClass) {
     extend(KodiPlugin, superClass);
 
@@ -35,7 +36,8 @@ module.exports = function(env) {
       this.framework.ruleManager.addActionProvider(new KodiPauseActionProvider(this.framework));
       this.framework.ruleManager.addActionProvider(new KodiPlayActionProvider(this.framework));
       this.framework.ruleManager.addActionProvider(new KodiPrevActionProvider(this.framework));
-      return this.framework.ruleManager.addActionProvider(new KodiNextActionProvider(this.framework));
+      this.framework.ruleManager.addActionProvider(new KodiNextActionProvider(this.framework));
+      return this.framework.ruleManager.addPredicateProvider(new PlayingPredicateProvider(this.framework));
     };
 
     return KodiPlugin;
@@ -44,13 +46,17 @@ module.exports = function(env) {
   KodiPlayer = (function(superClass) {
     extend(KodiPlayer, superClass);
 
-    KodiPlayer.prototype._state = null;
+    KodiPlayer.prototype._state = "stopped";
 
     KodiPlayer.prototype._currentTitle = null;
 
     KodiPlayer.prototype._currentArtist = null;
 
     KodiPlayer.prototype._volume = null;
+
+    KodiPlayer.prototype.connection = null;
+
+    KodiPlayer.prototype.kodi = null;
 
     KodiPlayer.prototype.connection = null;
 
@@ -97,18 +103,16 @@ module.exports = function(env) {
     KodiPlayer.prototype.template = "musicplayer";
 
     function KodiPlayer(config1) {
-      var connection;
+      var _state, connection;
       this.config = config1;
       this.name = this.config.name;
       this.id = this.config.id;
       connection = new TCPConnection({
         host: this.config.host,
-        port: this.config.port,
-        verbose: true
+        port: this.config.port
       });
-      this.kodi = new XbmcApi({
-        debug: env.logger.debug
-      });
+      _state = 'stopped';
+      this.kodi = new XbmcApi;
       this.kodi.setConnection(connection);
       this.kodi.on('connection:open', (function(_this) {
         return function() {
@@ -116,9 +120,19 @@ module.exports = function(env) {
           return _this._updateInfo();
         };
       })(this));
-      this.kodi.on('connection:close', function() {
-        return env.logger.info('Kodi Disconnected');
-      });
+      this.kodi.on('connection:close', (function(_this) {
+        return function() {
+          return setTimeout(function() {
+            env.logger.info('Kodi Disconnected, Attempting reconnect');
+            connection = new TCPConnection({
+              host: _this.config.host,
+              port: _this.config.port,
+              verbose: VERBOSE
+            });
+            return _this.kodi.setConnection(connection);
+          }, 60000);
+        };
+      })(this));
       this.kodi.on('connection:notification', (function(_this) {
         return function(notification) {
           return env.logger.debug('Received notification:', notification);
@@ -138,7 +152,9 @@ module.exports = function(env) {
       })(this));
       this.kodi.on('api:playerStopped', (function(_this) {
         return function() {
-          return _this._setState('stopped');
+          _this._setState('stopped');
+          _this._setCurrentTitle("");
+          return _this._setCurrentArtist("");
         };
       })(this));
       KodiPlayer.__super__.constructor.call(this);
@@ -217,8 +233,7 @@ module.exports = function(env) {
     };
 
     KodiPlayer.prototype._getStatus = function() {
-      env.logger.debug('get status');
-      return this._setState('state');
+      return env.logger.debug('get status ignored');
     };
 
     KodiPlayer.prototype._getCurrentSong = function() {
@@ -527,6 +542,103 @@ module.exports = function(env) {
     return KodiPrevActionHandler;
 
   })(env.actions.ActionHandler);
+  PlayingPredicateProvider = (function(superClass) {
+    extend(PlayingPredicateProvider, superClass);
+
+    function PlayingPredicateProvider(framework) {
+      this.framework = framework;
+    }
+
+    PlayingPredicateProvider.prototype.parsePredicate = function(input, context) {
+      var device, kodiDevices, match, negated, state;
+      kodiDevices = _(this.framework.deviceManager.devices).values().filter((function(_this) {
+        return function(device) {
+          return device.hasAttribute('state');
+        };
+      })(this)).value();
+      device = null;
+      state = null;
+      negated = null;
+      match = null;
+      M(input, context).matchDevice(kodiDevices, (function(_this) {
+        return function(next, d) {
+          return next.match([' is', ' reports', ' signals']).match([' playing', ' stopped', ' paused', ' not playing'], function(m, s) {
+            if ((device != null) && device.id !== d.id) {
+              if (context != null) {
+                context.addError("\"" + (input.trim()) + "\" is ambiguous.");
+              }
+              return;
+            }
+            device = d;
+            state = s.trim();
+            return match = m.getFullMatch();
+          });
+        };
+      })(this));
+      if (match != null) {
+        assert(device != null);
+        assert(state != null);
+        assert(typeof match === "string");
+        return {
+          token: match,
+          nextInput: input.substring(match.length),
+          predicateHandler: new PlayingPredicateHandler(device, state)
+        };
+      } else {
+        return null;
+      }
+    };
+
+    return PlayingPredicateProvider;
+
+  })(env.predicates.PredicateProvider);
+  PlayingPredicateHandler = (function(superClass) {
+    extend(PlayingPredicateHandler, superClass);
+
+    function PlayingPredicateHandler(device1, state1) {
+      this.device = device1;
+      this.state = state1;
+    }
+
+    PlayingPredicateHandler.prototype.setup = function() {
+      this.playingListener = (function(_this) {
+        return function(p) {
+          env.logger.debug("checking for: " + _this.state + " == " + p);
+          if (_this.state === p) {
+            return _this.emit('change', _this.state === p);
+          } else if (_this.state === "not playing") {
+            return _this.emit('change', p !== "playing");
+          }
+        };
+      })(this);
+      this.device.on('state', this.playingListener);
+      return PlayingPredicateHandler.__super__.setup.call(this);
+    };
+
+    PlayingPredicateHandler.prototype.getValue = function() {
+      return this.device.getUpdatedAttributeValue('state').then((function(_this) {
+        return function(p) {
+          if (_this.state === p) {
+            return !p;
+          } else {
+            return p;
+          }
+        };
+      })(this));
+    };
+
+    PlayingPredicateHandler.prototype.destroy = function() {
+      this.device.removeListener("state", this.playingListener);
+      return PlayingPredicateHandler.__super__.destroy.call(this);
+    };
+
+    PlayingPredicateHandler.prototype.getType = function() {
+      return 'state';
+    };
+
+    return PlayingPredicateHandler;
+
+  })(env.predicates.PredicateHandler);
   kodiPlugin = new KodiPlugin;
   return kodiPlugin;
 };

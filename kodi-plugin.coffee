@@ -15,13 +15,17 @@ module.exports = (env) ->
   # Require the [cassert library](https://github.com/rhoot/cassert).
   assert = env.require 'cassert'
 
+  # Require the XBMC(kodi) API
+  {TCPConnection, XbmcApi} = require 'xbmc'
+  
   VERBOSE = false
 
   M = env.matcher
   _ = env.require('lodash')
+
+
   
-  # Require the XBMC(kodi) API
-  {TCPConnection, XbmcApi} = require 'xbmc'
+
 
   
 #    silent: true      # comment out for debug!
@@ -54,16 +58,14 @@ module.exports = (env) ->
       @framework.ruleManager.addPredicateProvider(new PlayingPredicateProvider(@framework))
 
 
-
-
-
-
   class KodiPlayer extends env.devices.Device
     _state: "stopped"
     _currentTitle: null
     _currentArtist: null
     _volume: null
     connection: null
+    kodi : null
+    connection : null
 
     actions: 
       play:
@@ -100,14 +102,14 @@ module.exports = (env) ->
       @id = @config.id
 
       connection = new TCPConnection
-        host: @config.host
+        host: @config.host 
         port: @config.port
-        verbose: VERBOSE
+      #  verbose: VERBOSE
 
       _state = 'stopped'
 
       @kodi = new XbmcApi
-        debug: env.logger.debug
+#        debug: env.logger.debug
 
       @kodi.setConnection connection  
       @kodi.on 'connection:open',                        => 
