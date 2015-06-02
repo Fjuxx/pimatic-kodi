@@ -4,7 +4,7 @@ var bind = function(fn, me){ return function(){ return fn.apply(me, arguments); 
   hasProp = {}.hasOwnProperty;
 
 module.exports = function(env) {
-  var KodiApi, KodiNextActionHandler, KodiNextActionProvider, KodiPauseActionHandler, KodiPauseActionProvider, KodiPlayActionHandler, KodiPlayActionProvider, KodiPlayer, KodiPlugin, KodiPrevActionHandler, KodiPrevActionProvider, M, PlayingPredicateHandler, PlayingPredicateProvider, Promise, VERBOSE, _, assert, kodiPlugin;
+  var ConnectionProvider, KodiApi, KodiNextActionHandler, KodiNextActionProvider, KodiPauseActionHandler, KodiPauseActionProvider, KodiPlayActionHandler, KodiPlayActionProvider, KodiPlayer, KodiPlugin, KodiPrevActionHandler, KodiPrevActionProvider, M, PlayingPredicateHandler, PlayingPredicateProvider, Promise, VERBOSE, _, assert, kodiPlugin;
   Promise = env.require('bluebird');
   assert = env.require('cassert');
   KodiApi = require('xbmc-ws');
@@ -43,6 +43,50 @@ module.exports = function(env) {
     return KodiPlugin;
 
   })(env.plugins.Plugin);
+  ConnectionProvider = (function() {
+    ConnectionProvider.prototype.connection = null;
+
+    ConnectionProvider.prototype.connected = false;
+
+    ConnectionProvider.prototype._host = "";
+
+    ConnectionProvider.prototype._port = 0;
+
+    function ConnectionProvider(host, port) {
+      this.getConnection = bind(this.getConnection, this);
+      this._host = host;
+      this._port = port;
+    }
+
+    ConnectionProvider.prototype.getConnection = function() {
+      return new Promise((function(_this) {
+        return function(resolve, reject) {
+          if (_this.connected) {
+            return resolve(_this.connection);
+          } else {
+            return KodiApi(_this._host, _this._port).then(function(newConnection) {
+              _this.connected = true;
+              _this.connection = newConnection;
+              _this.connection.on("error", (function() {
+                _this.connected = false;
+                return _this.connection = null;
+              }));
+              _this.connection.on("close", (function() {
+                _this.connected = false;
+                return _this.connection = null;
+              }));
+              return resolve(_this.connection);
+            })["catch"](function(error) {
+              return reject(error);
+            });
+          }
+        };
+      })(this));
+    };
+
+    return ConnectionProvider;
+
+  })();
   KodiPlayer = (function(superClass) {
     extend(KodiPlayer, superClass);
 
@@ -55,6 +99,12 @@ module.exports = function(env) {
     KodiPlayer.prototype._currentArtist = null;
 
     KodiPlayer.prototype._volume = null;
+
+    KodiPlayer.prototype._host = "";
+
+    KodiPlayer.prototype._port = 0;
+
+    KodiPlayer.prototype._connectionProvider = null;
 
     KodiPlayer.prototype.kodi = null;
 
@@ -105,25 +155,25 @@ module.exports = function(env) {
     KodiPlayer.prototype.template = "musicplayer";
 
     function KodiPlayer(config1) {
-      var _state;
+      var _host, _port, _state;
       this.config = config1;
       this.name = this.config.name;
       this.id = this.config.id;
+      _host = this.config.host;
+      _port = this.config.port;
       _state = 'stopped';
-      KodiApi(this.config.host, this.config.port).then((function(_this) {
+      this._connectionProvider = new ConnectionProvider(this.config.host, this.config.port);
+      this._connectionProvider.getConnection().then((function(_this) {
         return function(connection) {
-          _this.kodi = connection;
-          env.logger.info('Kodi connected');
-          env.logger.debug(_this.kodi);
-          _this.kodi.Player.OnPause(function(data) {
+          connection.Player.OnPause(function(data) {
             env.logger.debug('Kodi Paused');
             _this._setState('paused');
           });
-          _this.kodi.Player.OnStop(function() {
+          connection.Player.OnStop(function() {
             env.logger.debug('Kodi Paused');
             _this._setState('stopped');
           });
-          return _this.kodi.Player.OnPlay(function(data) {
+          return connection.Player.OnPlay(function(data) {
             var ref;
             if ((data != null ? (ref = data.data) != null ? ref.item : void 0 : void 0) != null) {
               _this._parseItem(data.data.item);
@@ -157,23 +207,75 @@ module.exports = function(env) {
     };
 
     KodiPlayer.prototype.play = function() {
-      return this.kodi.Player.PlayPause();
+      return this._connectionProvider.getConnection().then((function(_this) {
+        return function(connection) {
+          return connection.Player.GetActivePlayers().then(function(players) {
+            if (players.length > 0) {
+              return connection.Player.PlayPause({
+                "playerid": players[0].playerid
+              });
+            }
+          });
+        };
+      })(this));
     };
 
     KodiPlayer.prototype.pause = function() {
-      return this.kodi.Player.PlayPause();
+      return this._connectionProvider.getConnection().then((function(_this) {
+        return function(connection) {
+          return connection.Player.GetActivePlayers().then(function(players) {
+            if (players.length > 0) {
+              return connection.Player.PlayPause({
+                "playerid": players[0].playerid
+              });
+            }
+          });
+        };
+      })(this));
     };
 
     KodiPlayer.prototype.stop = function() {
-      return this.kodi.Player.Stop();
+      return this._connectionProvider.getConnection().then((function(_this) {
+        return function(connection) {
+          return connection.Player.GetActivePlayers().then(function(players) {
+            if (players.length > 0) {
+              return connection.Player.Stop({
+                "playerid": players[0].playerid
+              });
+            }
+          });
+        };
+      })(this));
     };
 
     KodiPlayer.prototype.previous = function() {
-      return this.kodi.Player.Previous();
+      return this._connectionProvider.getConnection().then((function(_this) {
+        return function(connection) {
+          return connection.Player.GetActivePlayers().then(function(players) {
+            if (players.length > 0) {
+              return connection.Player.GoTo({
+                "playerid": players[0].playerid,
+                "to": "previous"
+              });
+            }
+          });
+        };
+      })(this));
     };
 
     KodiPlayer.prototype.next = function() {
-      return this.kodi.Player.Next();
+      return this._connectionProvider.getConnection().then((function(_this) {
+        return function(connection) {
+          return connection.Player.GetActivePlayers().then(function(players) {
+            if (players.length > 0) {
+              return connection.Player.GoTo({
+                "playerid": players[0].playerid,
+                "to": "next"
+              });
+            }
+          });
+        };
+      })(this));
     };
 
     KodiPlayer.prototype.setVolume = function(volume) {
@@ -221,21 +323,23 @@ module.exports = function(env) {
 
     KodiPlayer.prototype._updatePlayer = function() {
       env.logger.debug('_updatePlayer');
-      return this.kodi.Player.GetActivePlayers().then((function(_this) {
-        return function(players) {
-          if (players.length > 0) {
-            return _this.kodi.Player.GetItem({
-              "playerid": players[0].playerid,
-              "properties": ["title", "artist"]
-            }).then(function(data) {
-              var info;
-              env.logger.debug(data);
-              info = data.item;
-              _this._setCurrentTitle(info.title != null ? info.title : info.label != null ? info.label : "");
-              _this._setCurrentArtist(info.artist != null ? info.artist : "");
-              return _this._setType(info.type);
-            });
-          }
+      return this._connectionProvider.getConnection().then((function(_this) {
+        return function(connection) {
+          return connection.Player.GetActivePlayers().then(function(players) {
+            if (players.length > 0) {
+              return connection.Player.GetItem({
+                "playerid": players[0].playerid,
+                "properties": ["title", "artist"]
+              }).then(function(data) {
+                var info;
+                env.logger.debug(data);
+                info = data.item;
+                _this._setCurrentTitle(info.title != null ? info.title : info.label != null ? info.label : "");
+                _this._setCurrentArtist(info.artist != null ? info.artist : "");
+                return _this._setType(info.type);
+              });
+            }
+          });
         };
       })(this));
     };

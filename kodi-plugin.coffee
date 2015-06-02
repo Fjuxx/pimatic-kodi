@@ -59,6 +59,39 @@ module.exports = (env) ->
       @framework.ruleManager.addActionProvider(new KodiNextActionProvider(@framework))
       @framework.ruleManager.addPredicateProvider(new PlayingPredicateProvider(@framework))
 
+  class ConnectionProvider
+    connection : null
+    connected : false
+    _host : ""
+    _port : 0
+
+    constructor: (host,port) ->
+      @_host = host
+      @_port = port
+
+    getConnection: =>
+      return new Promise((resolve, reject) =>
+        if @connected
+          resolve @connection
+        else
+          # make a new connection
+          KodiApi(@_host,@_port).then((newConnection) =>
+            @connected = true
+            @connection = newConnection
+            
+            @connection.on "error", (() =>
+              @connected = false
+              @connection = null
+            )
+            @connection.on "close", (() =>
+              @connected = false
+              @connection = null
+            )
+            resolve @connection
+          ).catch( (error) =>
+            reject error
+          )
+      )
 
   class KodiPlayer extends env.devices.Device
     _state: "stopped"
@@ -66,6 +99,9 @@ module.exports = (env) ->
     _currentTitle: null
     _currentArtist: null
     _volume: null
+    _host : ""
+    _port : 0
+    _connectionProvider : null
     
     kodi : null
     
@@ -107,28 +143,32 @@ module.exports = (env) ->
     constructor: (@config) ->
       @name = @config.name
       @id = @config.id
+      _host = @config.host
+      _port = @config.port
 
       _state = 'stopped'
 
-      KodiApi(@config.host,@config.port).then (connection) =>
-        @kodi = connection
-        env.logger.info 'Kodi connected'
-        env.logger.debug @kodi
-        # @kodi.on 'error' , 'close', =>
+      @_connectionProvider = new ConnectionProvider(@config.host,@config.port)
+      # KodiApi(@config.host,@config.port).then (connection) =>
+      #   @kodi = connection
+      #   env.logger.info 'Kodi connected'
+      #   env.logger.debug @kodi
+      #   # @kodi.on 'error' , 'close', =>
         #   env.logger.info 'Kodi Disconnected, Attempting reconnect'
         #   #make reconnect
-
-        @kodi.Player.OnPause (data) =>
+      #@kodi = _connectionProvider.getConnection()
+      @_connectionProvider.getConnection().then (connection) =>
+        connection.Player.OnPause (data) =>
           env.logger.debug 'Kodi Paused'
           @_setState 'paused'
           return
 
-        @kodi.Player.OnStop =>
+        connection.Player.OnStop =>
           env.logger.debug 'Kodi Paused'
           @_setState 'stopped'
           return
 
-        @kodi.Player.OnPlay (data) =>
+        connection.Player.OnPlay (data) =>
           if data?.data?.item?
             @_parseItem(data.data.item)
           env.logger.debug 'Kodi Playing'
@@ -164,7 +204,7 @@ module.exports = (env) ->
       #   @_setCurrentArtist("")
         
       super()
-
+    
     getState: () ->
       return Promise.resolve @_state
 
@@ -172,11 +212,31 @@ module.exports = (env) ->
     getCurrentArtist: () -> Promise.resolve(@_currentTitle)
     getVolume: ()  -> Promise.resolve(@_volume)
     getType: () -> Promise.resolve(@_type)
-    play: () -> @kodi.Player.PlayPause()
-    pause: () -> @kodi.Player.PlayPause()
-    stop: () -> @kodi.Player.Stop()
-    previous: () -> @kodi.Player.Previous()
-    next: () -> @kodi.Player.Next() 
+    play: () -> 
+      @_connectionProvider.getConnection().then (connection) =>
+        connection.Player.GetActivePlayers().then (players) =>
+          if players.length > 0
+            connection.Player.PlayPause({"playerid":players[0].playerid})
+    pause: () -> 
+      @_connectionProvider.getConnection().then (connection) =>
+        connection.Player.GetActivePlayers().then (players) =>
+          if players.length > 0
+            connection.Player.PlayPause({"playerid":players[0].playerid})
+    stop: () -> 
+      @_connectionProvider.getConnection().then (connection) =>
+        connection.Player.GetActivePlayers().then (players) =>
+          if players.length > 0
+            connection.Player.Stop({"playerid":players[0].playerid})
+    previous: () -> 
+      @_connectionProvider.getConnection().then (connection) =>
+        connection.Player.GetActivePlayers().then (players) =>
+          if players.length > 0
+            connection.Player.GoTo({"playerid":players[0].playerid,"to":"previous"})
+    next: () -> 
+      @_connectionProvider.getConnection().then (connection) =>
+        connection.Player.GetActivePlayers().then (players) =>
+          if players.length > 0
+            connection.Player.GoTo({"playerid":players[0].playerid,"to":"next"})
     setVolume: (volume) -> env.logger.debug 'setVolume not implemented'
 
     _updateInfo: -> Promise.all([@_updatePlayer()])
@@ -207,14 +267,15 @@ module.exports = (env) ->
 
     _updatePlayer: () ->
       env.logger.debug '_updatePlayer'
-      @kodi.Player.GetActivePlayers().then (players) =>
-        if players.length > 0
-          @kodi.Player.GetItem({"playerid":players[0].playerid,"properties":["title","artist"]}).then (data) =>
-            env.logger.debug data
-            info = data.item
-            @_setCurrentTitle(if info.title? then info.title else if info.label? then info.label else "")
-            @_setCurrentArtist(if info.artist? then info.artist else "")
-            @_setType(info.type)
+      @_connectionProvider.getConnection().then (connection) =>
+        connection.Player.GetActivePlayers().then (players) =>
+          if players.length > 0
+            connection.Player.GetItem({"playerid":players[0].playerid,"properties":["title","artist"]}).then (data) =>
+              env.logger.debug data
+              info = data.item
+              @_setCurrentTitle(if info.title? then info.title else if info.label? then info.label else "")
+              @_setCurrentArtist(if info.artist? then info.artist else "")
+              @_setType(info.type)
 
     _sendCommandAction: (action) ->
       @kodi.input.ExecuteAction action

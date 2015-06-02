@@ -22,7 +22,6 @@ kodi('192.168.178.110', 9090).then(function(connection) {
             connection.Player.GetItem({"playerid": data[0].playerid}).then(function(data) {
             console.log('resolved');
             console.log(data);
-    
             }); 
         }
     });
