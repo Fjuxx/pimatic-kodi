@@ -4,10 +4,10 @@ var bind = function(fn, me){ return function(){ return fn.apply(me, arguments); 
   hasProp = {}.hasOwnProperty;
 
 module.exports = function(env) {
-  var KodiNextActionHandler, KodiNextActionProvider, KodiPauseActionHandler, KodiPauseActionProvider, KodiPlayActionHandler, KodiPlayActionProvider, KodiPlayer, KodiPlugin, KodiPrevActionHandler, KodiPrevActionProvider, M, PlayingPredicateHandler, PlayingPredicateProvider, Promise, TCPConnection, VERBOSE, XbmcApi, _, assert, kodiPlugin, ref;
+  var KodiApi, KodiNextActionHandler, KodiNextActionProvider, KodiPauseActionHandler, KodiPauseActionProvider, KodiPlayActionHandler, KodiPlayActionProvider, KodiPlayer, KodiPlugin, KodiPrevActionHandler, KodiPrevActionProvider, M, PlayingPredicateHandler, PlayingPredicateProvider, Promise, VERBOSE, _, assert, kodiPlugin;
   Promise = env.require('bluebird');
   assert = env.require('cassert');
-  ref = require('xbmc'), TCPConnection = ref.TCPConnection, XbmcApi = ref.XbmcApi;
+  KodiApi = require('xbmc-ws');
   VERBOSE = false;
   M = env.matcher;
   _ = env.require('lodash');
@@ -48,17 +48,15 @@ module.exports = function(env) {
 
     KodiPlayer.prototype._state = "stopped";
 
+    KodiPlayer.prototype._type = "";
+
     KodiPlayer.prototype._currentTitle = null;
 
     KodiPlayer.prototype._currentArtist = null;
 
     KodiPlayer.prototype._volume = null;
 
-    KodiPlayer.prototype.connection = null;
-
     KodiPlayer.prototype.kodi = null;
-
-    KodiPlayer.prototype.connection = null;
 
     KodiPlayer.prototype.actions = {
       play: {
@@ -94,6 +92,10 @@ module.exports = function(env) {
         description: "the current state of the player",
         type: "string"
       },
+      type: {
+        description: "The current type of the player",
+        type: "string"
+      },
       volume: {
         description: "the volume of the player",
         type: "string"
@@ -103,58 +105,32 @@ module.exports = function(env) {
     KodiPlayer.prototype.template = "musicplayer";
 
     function KodiPlayer(config1) {
-      var _state, connection;
+      var _state;
       this.config = config1;
       this.name = this.config.name;
       this.id = this.config.id;
-      connection = new TCPConnection({
-        host: this.config.host,
-        port: this.config.port
-      });
       _state = 'stopped';
-      this.kodi = new XbmcApi;
-      this.kodi.setConnection(connection);
-      this.kodi.on('connection:open', (function(_this) {
-        return function() {
+      KodiApi(this.config.host, this.config.port).then((function(_this) {
+        return function(connection) {
+          _this.kodi = connection;
           env.logger.info('Kodi connected');
-          return _this._updateInfo();
-        };
-      })(this));
-      this.kodi.on('connection:close', (function(_this) {
-        return function() {
-          return setTimeout(function() {
-            env.logger.info('Kodi Disconnected, Attempting reconnect');
-            connection = new TCPConnection({
-              host: _this.config.host,
-              port: _this.config.port,
-              verbose: VERBOSE
-            });
-            return _this.kodi.setConnection(connection);
-          }, 60000);
-        };
-      })(this));
-      this.kodi.on('connection:notification', (function(_this) {
-        return function(notification) {
-          return env.logger.debug('Received notification:', notification);
-        };
-      })(this));
-      this.kodi.on('notification:play', (function(_this) {
-        return function(data) {
-          _this._setState('playing');
-          env.logger.debug('onPlay data: ', data.params.data.item);
-          return _this._parseItem(data.params.data.item);
-        };
-      })(this));
-      this.kodi.on('notification:pause', (function(_this) {
-        return function() {
-          return _this._setState('paused');
-        };
-      })(this));
-      this.kodi.on('api:playerStopped', (function(_this) {
-        return function() {
-          _this._setState('stopped');
-          _this._setCurrentTitle("");
-          return _this._setCurrentArtist("");
+          env.logger.debug(_this.kodi);
+          _this.kodi.Player.OnPause(function(data) {
+            env.logger.debug('Kodi Paused');
+            _this._setState('paused');
+          });
+          _this.kodi.Player.OnStop(function() {
+            env.logger.debug('Kodi Paused');
+            _this._setState('stopped');
+          });
+          return _this.kodi.Player.OnPlay(function(data) {
+            var ref;
+            if ((data != null ? (ref = data.data) != null ? ref.item : void 0 : void 0) != null) {
+              _this._parseItem(data.data.item);
+            }
+            env.logger.debug('Kodi Playing');
+            _this._setState('Playing');
+          });
         };
       })(this));
       KodiPlayer.__super__.constructor.call(this);
@@ -176,24 +152,28 @@ module.exports = function(env) {
       return Promise.resolve(this._volume);
     };
 
+    KodiPlayer.prototype.getType = function() {
+      return Promise.resolve(this._type);
+    };
+
     KodiPlayer.prototype.play = function() {
-      return this.kodi.player.playPause();
+      return this.kodi.Player.PlayPause();
     };
 
     KodiPlayer.prototype.pause = function() {
-      return this.kodi.player.playPause();
+      return this.kodi.Player.PlayPause();
     };
 
     KodiPlayer.prototype.stop = function() {
-      return this.kodi.player.stop();
+      return this.kodi.Player.Stop();
     };
 
     KodiPlayer.prototype.previous = function() {
-      return this.kodi.player.previous();
+      return this.kodi.Player.Previous();
     };
 
     KodiPlayer.prototype.next = function() {
-      return this.kodi.player.next();
+      return this.kodi.Player.Next();
     };
 
     KodiPlayer.prototype.setVolume = function(volume) {
@@ -201,13 +181,20 @@ module.exports = function(env) {
     };
 
     KodiPlayer.prototype._updateInfo = function() {
-      return Promise.all([this._getStatus(), this._getCurrentSong()]);
+      return Promise.all([this._updatePlayer()]);
     };
 
     KodiPlayer.prototype._setState = function(state) {
       if (this._state !== state) {
         this._state = state;
         return this.emit('state', state);
+      }
+    };
+
+    KodiPlayer.prototype._setType = function(type) {
+      if (this._type !== type) {
+        this._type = type;
+        return this.emit('type', type);
       }
     };
 
@@ -232,17 +219,23 @@ module.exports = function(env) {
       }
     };
 
-    KodiPlayer.prototype._getStatus = function() {
-      return env.logger.debug('get status ignored');
-    };
-
-    KodiPlayer.prototype._getCurrentSong = function() {
-      env.logger.debug('_getCurrentSong ');
-      return this.kodi.player.getCurrentlyPlaying((function(_this) {
-        return function(info) {
-          env.logger.debug(info);
-          _this._setCurrentTitle(info.title != null ? info.title : "");
-          return _this._setCurrentArtist(info.artist != null ? info.artist : "");
+    KodiPlayer.prototype._updatePlayer = function() {
+      env.logger.debug('_updatePlayer');
+      return this.kodi.Player.GetActivePlayers().then((function(_this) {
+        return function(players) {
+          if (players.length > 0) {
+            return _this.kodi.Player.GetItem({
+              "playerid": players[0].playerid,
+              "properties": ["title", "artist"]
+            }).then(function(data) {
+              var info;
+              env.logger.debug(data);
+              info = data.item;
+              _this._setCurrentTitle(info.title != null ? info.title : info.label != null ? info.label : "");
+              _this._setCurrentArtist(info.artist != null ? info.artist : "");
+              return _this._setType(info.type);
+            });
+          }
         };
       })(this));
     };
@@ -252,18 +245,18 @@ module.exports = function(env) {
     };
 
     KodiPlayer.prototype._parseItem = function(itm) {
-      var artist, ref1, ref2, ref3, title, type;
+      var artist, ref, ref1, ref2, title, type;
       if (itm != null) {
-        artist = (ref1 = (ref2 = itm.artist) != null ? ref2[0] : void 0) != null ? ref1 : itm.artist;
+        artist = (ref = (ref1 = itm.artist) != null ? ref1[0] : void 0) != null ? ref : itm.artist;
         title = itm.title;
-        type = (ref3 = itm.type) != null ? ref3 : '';
+        type = (ref2 = itm.type) != null ? ref2 : '';
+        this._setType(type);
         env.logger.debug(title);
         if (type === 'song' || ((title != null) && (artist != null))) {
           this._setCurrentTitle(title != null ? title : "");
-          return this._setCurrentArtist(artist != null ? artist : "");
-        } else {
-          return this._updateInfo();
+          this._setCurrentArtist(artist != null ? artist : "");
         }
+        return this._updateInfo();
       }
     };
 

@@ -16,7 +16,9 @@ module.exports = (env) ->
   assert = env.require 'cassert'
 
   # Require the XBMC(kodi) API
-  {TCPConnection, XbmcApi} = require 'xbmc'
+  # {TCPConnection, XbmcApi} = require 'xbmc'
+
+  KodiApi = require 'xbmc-ws'
   
   VERBOSE = false
 
@@ -60,12 +62,13 @@ module.exports = (env) ->
 
   class KodiPlayer extends env.devices.Device
     _state: "stopped"
+    _type: ""
     _currentTitle: null
     _currentArtist: null
     _volume: null
-    connection: null
+    
     kodi : null
-    connection : null
+    
 
     actions: 
       play:
@@ -91,9 +94,13 @@ module.exports = (env) ->
       state:
         description: "the current state of the player"
         type: "string"
+      type:
+        description: "The current type of the player"
+        type: "string"
       volume:
         description: "the volume of the player"
         type: "string"
+
 
     template: "musicplayer"
 
@@ -101,42 +108,60 @@ module.exports = (env) ->
       @name = @config.name
       @id = @config.id
 
-      connection = new TCPConnection
-        host: @config.host 
-        port: @config.port
-      #  verbose: VERBOSE
-
       _state = 'stopped'
 
-      @kodi = new XbmcApi
-#        debug: env.logger.debug
-
-      @kodi.setConnection connection  
-      @kodi.on 'connection:open',                        => 
+      KodiApi(@config.host,@config.port).then (connection) =>
+        @kodi = connection
         env.logger.info 'Kodi connected'
-        @_updateInfo()        
-      @kodi.on 'connection:close',                       => 
-        setTimeout () =>
-          env.logger.info 'Kodi Disconnected, Attempting reconnect'
-          connection = new TCPConnection
-            host: @config.host
-            port: @config.port
-            verbose: VERBOSE
-          @kodi.setConnection connection 
-        , 60000
-      @kodi.on 'connection:notification', (notification) => 
-        env.logger.debug 'Received notification:', notification
-      @kodi.on 'notification:play', (data) =>
-        @_setState 'playing'
-        env.logger.debug 'onPlay data: ', data.params.data.item
-        @_parseItem data.params.data.item
+        env.logger.debug @kodi
+        # @kodi.on 'error' , 'close', =>
+        #   env.logger.info 'Kodi Disconnected, Attempting reconnect'
+        #   #make reconnect
 
-      @kodi.on 'notification:pause', =>
-        @_setState 'paused'
-      @kodi.on 'api:playerStopped', =>
-        @_setState 'stopped'
-        @_setCurrentTitle("")
-        @_setCurrentArtist("")
+        @kodi.Player.OnPause (data) =>
+          env.logger.debug 'Kodi Paused'
+          @_setState 'paused'
+          return
+
+        @kodi.Player.OnStop =>
+          env.logger.debug 'Kodi Paused'
+          @_setState 'stopped'
+          return
+
+        @kodi.Player.OnPlay (data) =>
+          if data?.data?.item?
+            @_parseItem(data.data.item)
+          env.logger.debug 'Kodi Playing'
+          @_setState 'Playing'
+          return
+
+        
+
+      # @kodi.on 'connection:open',                        => 
+      #   env.logger.info 'Kodi connected'
+      #   @_updateInfo()        
+      # @kodi.on 'connection:close',                       => 
+      #   setTimeout () =>
+      #     env.logger.info 'Kodi Disconnected, Attempting reconnect'
+      #     connection = new TCPConnection
+      #       host: @config.host
+      #       port: @config.port
+      #       verbose: VERBOSE
+      #     @kodi.setConnection connection 
+      #   , 60000
+      # @kodi.on 'connection:notification', (notification) => 
+      #   env.logger.debug 'Received notification:', notification
+      # @kodi.on 'notification:play', (data) =>
+      #   @_setState 'playing'
+      #   env.logger.debug 'onPlay data: ', data.params.data.item
+      #   @_parseItem data.params.data.item
+
+      # @kodi.on 'notification:pause', =>
+      #   @_setState 'paused'
+      # @kodi.on 'api:playerStopped', =>
+      #   @_setState 'stopped'
+      #   @_setCurrentTitle("")
+      #   @_setCurrentArtist("")
         
       super()
 
@@ -146,19 +171,24 @@ module.exports = (env) ->
     getCurrentTitle: () -> Promise.resolve(@_currentTitle)
     getCurrentArtist: () -> Promise.resolve(@_currentTitle)
     getVolume: ()  -> Promise.resolve(@_volume)
-    play: () -> @kodi.player.playPause()
-    pause: () -> @kodi.player.playPause()
-    stop: () -> @kodi.player.stop()
-    previous: () -> @kodi.player.previous()
-    next: () -> @kodi.player.next() 
+    getType: () -> Promise.resolve(@_type)
+    play: () -> @kodi.Player.PlayPause()
+    pause: () -> @kodi.Player.PlayPause()
+    stop: () -> @kodi.Player.Stop()
+    previous: () -> @kodi.Player.Previous()
+    next: () -> @kodi.Player.Next() 
     setVolume: (volume) -> env.logger.debug 'setVolume not implemented'
 
-    _updateInfo: -> Promise.all([@_getStatus(), @_getCurrentSong()])
+    _updateInfo: -> Promise.all([@_updatePlayer()])
 
     _setState: (state) ->
       if @_state isnt state
         @_state = state
         @emit 'state', state
+    _setType: (type) ->
+      if @_type isnt type
+        @_type = type
+        @emit 'type', type
 
     _setCurrentTitle: (title) ->
       if @_currentTitle isnt title
@@ -175,16 +205,16 @@ module.exports = (env) ->
         @_volume = volume
         @emit 'volume', volume
 
-    _getStatus: () ->
-      env.logger.debug 'get status ignored'
-      #@_setState 'state'
-
-    _getCurrentSong: () ->
-      env.logger.debug '_getCurrentSong '
-      @kodi.player.getCurrentlyPlaying (info) =>
-        env.logger.debug info
-        @_setCurrentTitle(if info.title? then info.title else "")
-        @_setCurrentArtist(if info.artist? then info.artist else "")
+    _updatePlayer: () ->
+      env.logger.debug '_updatePlayer'
+      @kodi.Player.GetActivePlayers().then (players) =>
+        if players.length > 0
+          @kodi.Player.GetItem({"playerid":players[0].playerid,"properties":["title","artist"]}).then (data) =>
+            env.logger.debug data
+            info = data.item
+            @_setCurrentTitle(if info.title? then info.title else if info.label? then info.label else "")
+            @_setCurrentArtist(if info.artist? then info.artist else "")
+            @_setType(info.type)
 
     _sendCommandAction: (action) ->
       @kodi.input.ExecuteAction action
@@ -194,12 +224,15 @@ module.exports = (env) ->
         artist = itm.artist?[0] ? itm.artist
         title = itm.title
         type = itm.type ? ''
+        @_setType type  
         env.logger.debug title
+
         if type == 'song' || (title? && artist?)
           @_setCurrentTitle(if title? then title else "")
           @_setCurrentArtist(if artist? then artist else "")
-        else
-          @_updateInfo()
+        #else
+
+        @_updateInfo()
 
   # Pause play volume actions
   class KodiPauseActionProvider extends env.actions.ActionProvider 
