@@ -11,20 +11,5 @@ module.exports ={
       host:
         description: "The address of Kodi/XBMC"
         type: "string"
-          properties:
-      customOpenCommands:
-        description: "Custom Player.Open commands to send."
-        type: "array"
-        default: []
-        format: "table"
-        items:
-          type: "object"
-          properties:
-            name:
-              description: "The name of the command"
-              type: "string"
-            command:
-              description: "The command"
-              type: "string"
   }
 }
