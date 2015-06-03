@@ -12,7 +12,7 @@ module.exports ={
         description: "The address of Kodi/XBMC"
         type: "string"
           properties:
-      CustomOpenCommands:
+      customOpenCommands:
         description: "Custom Player.Open commands to send."
         type: "array"
         default: []
