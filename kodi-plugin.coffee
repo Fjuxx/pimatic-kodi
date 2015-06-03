@@ -14,14 +14,21 @@ module.exports = (env) ->
 
   # Require the [cassert library](https://github.com/rhoot/cassert).
   assert = env.require 'cassert'
+  EventEmitter = require('events').EventEmitter
 
+  # Require the XBMC(kodi) API
+  # {TCPConnection, XbmcApi} = require 'xbmc'
+
+  KodiApi = require 'xbmc-ws'
+  
   VERBOSE = false
 
   M = env.matcher
   _ = env.require('lodash')
+
+
   
-  # Require the XBMC(kodi) API
-  {TCPConnection, XbmcApi} = require 'xbmc'
+
 
   
 #    silent: true      # comment out for debug!
@@ -48,22 +55,59 @@ module.exports = (env) ->
 
       @framework.ruleManager.addActionProvider(new KodiPauseActionProvider(@framework))
       @framework.ruleManager.addActionProvider(new KodiPlayActionProvider(@framework))
-      #@framework.ruleManager.addActionProvider(new MpdVolumeActionProvider(@framework))
       @framework.ruleManager.addActionProvider(new KodiPrevActionProvider(@framework))
       @framework.ruleManager.addActionProvider(new KodiNextActionProvider(@framework))
+      @framework.ruleManager.addActionProvider(new KodiExecuteOpenActionProvider(@framework,@config))
       @framework.ruleManager.addPredicateProvider(new PlayingPredicateProvider(@framework))
 
+  class ConnectionProvider extends EventEmitter
+    connection : null
+    connected : false
+    _host : ""
+    _port : 0
+    _emitter : null
 
+    constructor: (host,port) ->
+      @_host = host
+      @_port = port
 
-
-
+    getConnection: =>
+      return new Promise((resolve, reject) =>
+        if @connected
+          resolve @connection
+        else
+          # make a new connection
+          KodiApi(@_host,@_port).then((newConnection) =>
+            @connected = true
+            @connection = newConnection
+            @emit 'newConnection'
+            
+            @connection.on "error", (() =>
+              @connected = false
+              @connection = null
+            )
+            @connection.on "close", (() =>
+              @connected = false
+              @connection = null
+            )
+            resolve @connection
+          ).catch( (error) =>
+            reject error
+          )
+      )
 
   class KodiPlayer extends env.devices.Device
     _state: "stopped"
+    _type: ""
     _currentTitle: null
     _currentArtist: null
     _volume: null
-    connection: null
+    _host : ""
+    _port : 0
+    _connectionProvider : null
+    
+    kodi : null
+    
 
     actions: 
       play:
@@ -78,6 +122,8 @@ module.exports = (env) ->
         description: "play previous song"
       volume:
         description: "Change volume of player"
+      executeOpenCommand:
+        description: "Execute custom Player.Open command"
 
     attributes:
       currentArtist:
@@ -89,74 +135,103 @@ module.exports = (env) ->
       state:
         description: "the current state of the player"
         type: "string"
+      type:
+        description: "The current type of the player"
+        type: "string"
       volume:
         description: "the volume of the player"
         type: "string"
+
 
     template: "musicplayer"
 
     constructor: (@config) ->
       @name = @config.name
       @id = @config.id
-
-      connection = new TCPConnection
-        host: @config.host
-        port: @config.port
-        verbose: VERBOSE
+      _host = @config.host
+      _port = @config.port
 
       _state = 'stopped'
 
-      @kodi = new XbmcApi
-        debug: env.logger.debug
+      @_connectionProvider = new ConnectionProvider(@config.host,@config.port)
 
-      @kodi.setConnection connection  
-      @kodi.on 'connection:open',                        => 
-        env.logger.info 'Kodi connected'
-        @_updateInfo()        
-      @kodi.on 'connection:close',                       => 
-        setTimeout () =>
-          env.logger.info 'Kodi Disconnected, Attempting reconnect'
-          connection = new TCPConnection
-            host: @config.host
-            port: @config.port
-            verbose: VERBOSE
-          @kodi.setConnection connection 
-        , 60000
-      @kodi.on 'connection:notification', (notification) => 
-        env.logger.debug 'Received notification:', notification
-      @kodi.on 'notification:play', (data) =>
-        @_setState 'playing'
-        env.logger.debug 'onPlay data: ', data.params.data.item
-        @_parseItem data.params.data.item
+      @_connectionProvider.on 'newConnection', =>
+        @_connectionProvider.getConnection().then (connection) =>
+          connection.Player.OnPause (data) =>
+            env.logger.debug 'Kodi Paused'
+            @_setState 'paused'
+            return
 
-      @kodi.on 'notification:pause', =>
-        @_setState 'paused'
-      @kodi.on 'api:playerStopped', =>
-        @_setState 'stopped'
-        @_setCurrentTitle("")
-        @_setCurrentArtist("")
-        
+          connection.Player.OnStop =>
+            env.logger.debug 'Kodi Paused'
+            @_setState 'stopped'
+            return
+
+          connection.Player.OnPlay (data) =>
+            if data?.data?.item?
+              @_parseItem(data.data.item)
+            env.logger.debug 'Kodi Playing'
+            @_setState 'playing'
+            return
+      @_updateInfo()
+      setInterval => 
+        @_updateInfo()
+      , 60000
+
       super()
-
+    
     getState: () ->
       return Promise.resolve @_state
 
     getCurrentTitle: () -> Promise.resolve(@_currentTitle)
     getCurrentArtist: () -> Promise.resolve(@_currentTitle)
     getVolume: ()  -> Promise.resolve(@_volume)
-    play: () -> @kodi.player.playPause()
-    pause: () -> @kodi.player.playPause()
-    stop: () -> @kodi.player.stop()
-    previous: () -> @kodi.player.previous()
-    next: () -> @kodi.player.next() 
+    getType: () -> Promise.resolve(@_type)
+    play: () -> 
+      @_connectionProvider.getConnection().then (connection) =>
+        connection.Player.GetActivePlayers().then (players) =>
+          if players.length > 0
+            connection.Player.PlayPause({"playerid":players[0].playerid})
+    pause: () -> 
+      @_connectionProvider.getConnection().then (connection) =>
+        connection.Player.GetActivePlayers().then (players) =>
+          if players.length > 0
+            connection.Player.PlayPause({"playerid":players[0].playerid})
+    stop: () -> 
+      @_connectionProvider.getConnection().then (connection) =>
+        connection.Player.GetActivePlayers().then (players) =>
+          if players.length > 0
+            connection.Player.Stop({"playerid":players[0].playerid})
+    previous: () -> 
+      @_connectionProvider.getConnection().then (connection) =>
+        connection.Player.GetActivePlayers().then (players) =>
+          if players.length > 0
+            connection.Player.GoTo({"playerid":players[0].playerid,"to":"previous"})
+    next: () -> 
+      @_connectionProvider.getConnection().then (connection) =>
+        connection.Player.GetActivePlayers().then (players) =>
+          if players.length > 0
+            connection.Player.GoTo({"playerid":players[0].playerid,"to":"next"})
     setVolume: (volume) -> env.logger.debug 'setVolume not implemented'
 
-    _updateInfo: -> Promise.all([@_getStatus(), @_getCurrentSong()])
+    executeOpenCommand: (command) =>
+      env.logger.debug command
+      
+      @_connectionProvider.getConnection().then (connection) =>
+        connection.Player.Open({
+          item: { file : command}
+          })
+
+    _updateInfo: -> Promise.all([@_updatePlayer()])
 
     _setState: (state) ->
       if @_state isnt state
         @_state = state
         @emit 'state', state
+    _setType: (type) ->
+      if @_type isnt type
+        @_type = type
+        @emit 'type', type
 
     _setCurrentTitle: (title) ->
       if @_currentTitle isnt title
@@ -173,16 +248,17 @@ module.exports = (env) ->
         @_volume = volume
         @emit 'volume', volume
 
-    _getStatus: () ->
-      env.logger.debug 'get status ignored'
-      #@_setState 'state'
-
-    _getCurrentSong: () ->
-      env.logger.debug '_getCurrentSong '
-      @kodi.player.getCurrentlyPlaying (info) =>
-        env.logger.debug info
-        @_setCurrentTitle(if info.title? then info.title else "")
-        @_setCurrentArtist(if info.artist? then info.artist else "")
+    _updatePlayer: () ->
+      env.logger.debug '_updatePlayer'
+      @_connectionProvider.getConnection().then (connection) =>
+        connection.Player.GetActivePlayers().then (players) =>
+          if players.length > 0
+            connection.Player.GetItem({"playerid":players[0].playerid,"properties":["title","artist"]}).then (data) =>
+              env.logger.debug data
+              info = data.item
+              @_setCurrentTitle(if info.title? then info.title else if info.label? then info.label else "")
+              @_setCurrentArtist(if info.artist? then info.artist else "")
+              @_setType(info.type)
 
     _sendCommandAction: (action) ->
       @kodi.input.ExecuteAction action
@@ -192,12 +268,75 @@ module.exports = (env) ->
         artist = itm.artist?[0] ? itm.artist
         title = itm.title
         type = itm.type ? ''
+        @_setType type  
         env.logger.debug title
+
         if type == 'song' || (title? && artist?)
           @_setCurrentTitle(if title? then title else "")
           @_setCurrentArtist(if artist? then artist else "")
+        #else
+
+        @_updateInfo()
+  class KodiExecuteOpenActionProvider extends env.actions.ActionProvider
+    constructor: (@framework,@config) ->
+    # ### executeAction()
+    ###
+    This function handles action in the form of `execute "some string"`
+
+    ###
+    parseAction: (input, context) =>
+      retVar = null
+
+      kodiPlayers = _(@framework.deviceManager.devices).values().filter( 
+        (device) => device.hasAction("executeOpenCommand") 
+      ).value()
+      if kodiPlayers.length is 0 then return
+
+      device = null
+      match = null
+      state = null
+      #get command names
+      commandNames = []
+      for command in @config.customOpenCommands
+        commandNames.push(command.name)
+      onDeviceMatch = ( (m , d) -> device = d; match = m.getFullMatch() )   
+
+      m = M(input, context)
+        .match('execute Open Command ')
+        .match(commandNames, (m,s) -> state = s.trim();)
+        .match(' on ')
+        .matchDevice(kodiPlayers, onDeviceMatch)
+        
+      if match?
+        assert device?
+        assert (state) in commandNames
+        assert typeof match is "string"
+        return {
+          token: match
+          nextInput: input.substring(match.length)
+          actionHandler: new KodiExecuteOpenActionHandler(device,@config,state)
+        }
+      else
+        return null
+
+  class KodiExecuteOpenActionHandler extends env.actions.ActionHandler
+
+    constructor: (@device,@config,@name) -> #nop
+
+    executeAction: (simulate) => 
+     # return (
+        if simulate
+          for command in @config.customOpenCommands
+            if command.name is @name
+              return Promise.resolve __("would execute %s", command.command)
+              console.log 'resolved'
         else
-          @_updateInfo()
+          for command in @config.customOpenCommands
+            env.logger.debug "checking for: #{command.name} == #{@name}"
+            if command.name is @name
+              return @device.executeOpenCommand(command.command).then( => __("executed %s", @device.name))
+              console.log 'executed'
+   #   )
 
   # Pause play volume actions
   class KodiPauseActionProvider extends env.actions.ActionProvider 
@@ -446,15 +585,19 @@ module.exports = (env) ->
     setup: -> 
       @playingListener = (p) => 
         env.logger.debug "checking for: #{@state} == #{p}"
-        if (@state is p)
-          @emit 'change', (@state is p)
-        else if @state is "not playing"
-          @emit 'change', (p isnt "playing")
+        if (@state.trim() is p.trim())
+          @emit 'change', (@state.trim() is p.trim())
+        else if @state is "not playing" and (p.trim() isnt "playing")
+          @emit 'change', (p.trim() isnt "playing")
       @device.on 'state', @playingListener
       super()
     getValue: -> 
       return @device.getUpdatedAttributeValue('state').then( 
-        (p) => (if (@state is p) then not p else p)
+        (p) => #(if (@state.trim() is p.trim()) then not p else p)
+          if (@state.trim() is p.trim())
+            return (@state.trim() is p.trim())
+          else if @state is "not playing" and (p.trim() isnt "playing")
+            return (p.trim() isnt "playing")
       )
     destroy: -> 
       @device.removeListener "state", @playingListener

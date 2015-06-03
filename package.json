@@ -1,7 +1,7 @@
 {
   "name": "pimatic-kodi",
   "description": "Pimatic plugin for XBMC/Kodi",
-  "author": "Nick van Alst <Fjux>",
+  "author": "Fjux <Fjux>",
   "main": "kodi-plugin",
   "files": [
     "kodi-plugin.coffee",
@@ -9,8 +9,8 @@
     "kodi-plugin-config-schema.coffee",
     "device-config-schema.coffee"
   ],
-  "version": "0.0.7",
-  "homepage": "http://www.kodi.com",
+  "version": "0.1.0",
+  "homepage": "https://github.com/Fjuxx/pimatic-kodi",
   "private": false,
   "repository": {
     "type": "git",
@@ -18,8 +18,8 @@
   },
   "configSchema": "kodi-plugin-config-schema.coffee",
   "dependencies": {
-    "xbmc": "git+https://github.com/Fjuxx/node-xbmc/"
-  },
+    "xbmc-ws": ">=2.1.1"
+  }, 
   "peerDependencies": {
     "pimatic": "0.8.*"
   },
