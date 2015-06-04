@@ -92,7 +92,8 @@ module.exports = (env) ->
             )
             resolve @connection
           ).catch( (error) =>
-            reject error
+            env.logger.debug 'connection rejected'
+            env.logger.debug error
           )
       )
 

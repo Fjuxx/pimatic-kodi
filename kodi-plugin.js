@@ -85,7 +85,8 @@ module.exports = function(env) {
               }));
               return resolve(_this.connection);
             })["catch"](function(error) {
-              return reject(error);
+              env.logger.debug('connection rejected');
+              return env.logger.debug(error);
             });
           }
         };
