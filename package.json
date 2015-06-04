@@ -9,7 +9,7 @@
     "kodi-plugin-config-schema.coffee",
     "device-config-schema.coffee"
   ],
-  "version": "0.1.0",
+  "version": "0.1.1",
   "homepage": "https://github.com/Fjuxx/pimatic-kodi",
   "private": false,
   "repository": {
@@ -18,7 +18,7 @@
   },
   "configSchema": "kodi-plugin-config-schema.coffee",
   "dependencies": {
-    "xbmc-ws": ">=2.1.1"
+    "xbmc-ws": "git+https://github.com/Fjuxx/node-xbmc-ws"
   }, 
   "peerDependencies": {
     "pimatic": "0.8.*"
