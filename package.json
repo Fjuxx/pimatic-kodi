@@ -9,7 +9,7 @@
     "kodi-plugin-config-schema.coffee",
     "device-config-schema.coffee"
   ],
-  "version": "0.1.2",
+  "version": "0.1.3",
   "homepage": "https://github.com/Fjuxx/pimatic-kodi",
   "private": false,
   "repository": {

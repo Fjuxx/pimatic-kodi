@@ -186,6 +186,8 @@ module.exports = function(env) {
             connection.Player.OnStop(function() {
               env.logger.debug('Kodi Paused');
               _this._setState('stopped');
+              _this._setCurrentTitle('');
+              _this._setCurrentArtist('');
             });
             return connection.Player.OnPlay(function(data) {
               var ref;
@@ -372,6 +374,9 @@ module.exports = function(env) {
                 _this._setCurrentArtist(info.artist != null ? info.artist : "");
                 return _this._setType(info.type);
               });
+            } else {
+              _this._setCurrentArtist('');
+              return _this._setCurrentTitle('');
             }
           });
         };

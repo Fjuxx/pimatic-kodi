@@ -166,6 +166,8 @@ module.exports = (env) ->
           connection.Player.OnStop =>
             env.logger.debug 'Kodi Paused'
             @_setState 'stopped'
+            @_setCurrentTitle ''
+            @_setCurrentArtist ''
             return
 
           connection.Player.OnPlay (data) =>
@@ -260,6 +262,9 @@ module.exports = (env) ->
               @_setCurrentTitle(if info.title? then info.title else if info.label? then info.label else "")
               @_setCurrentArtist(if info.artist? then info.artist else "")
               @_setType(info.type)
+          else
+            @_setCurrentArtist ''
+            @_setCurrentTitle ''
 
     _sendCommandAction: (action) ->
       @kodi.input.ExecuteAction action
