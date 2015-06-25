@@ -259,9 +259,9 @@ module.exports = (env) ->
             connection.Player.GetItem({"playerid":players[0].playerid,"properties":["title","artist"]}).then (data) =>
               env.logger.debug data
               info = data.item
+              @_setType(info.type)
               @_setCurrentTitle(if info.title? then info.title else if info.label? then info.label else "")
               @_setCurrentArtist(if info.artist? then info.artist else "")
-              @_setType(info.type)
           else
             @_setCurrentArtist ''
             @_setCurrentTitle ''
