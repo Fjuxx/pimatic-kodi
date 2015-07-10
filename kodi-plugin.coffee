@@ -53,10 +53,6 @@ module.exports = (env) ->
         createCallback: (config) => new KodiPlayer(config)
       })
 
-      @framework.ruleManager.addActionProvider(new KodiPauseActionProvider(@framework))
-      @framework.ruleManager.addActionProvider(new KodiPlayActionProvider(@framework))
-      @framework.ruleManager.addActionProvider(new KodiPrevActionProvider(@framework))
-      @framework.ruleManager.addActionProvider(new KodiNextActionProvider(@framework))
       @framework.ruleManager.addActionProvider(new KodiExecuteOpenActionProvider(@framework,@config))
       @framework.ruleManager.addPredicateProvider(new PlayingPredicateProvider(@framework))
 
@@ -97,54 +93,14 @@ module.exports = (env) ->
           )
       )
 
-  class KodiPlayer extends env.devices.Device
-    _state: "stopped"
+  class KodiPlayer extends env.devices.AVPlayer
     _type: ""
-    _currentTitle: null
-    _currentArtist: null
-    _volume: null
     _host : ""
     _port : 0
     _connectionProvider : null
     
     kodi : null
-    
 
-    actions: 
-      play:
-        description: "starts playing"
-      pause:
-        description: "pauses playing"
-      stop:
-        description: "stops playing"
-      next:
-        description: "play next song"
-      previous:
-        description: "play previous song"
-      volume:
-        description: "Change volume of player"
-      executeOpenCommand:
-        description: "Execute custom Player.Open command"
-
-    attributes:
-      currentArtist:
-        description: "the current playing track artist"
-        type: "string"   
-      currentTitle:
-        description: "the current playing track title"
-        type: "string"
-      state:
-        description: "the current state of the player"
-        type: "string"
-      type:
-        description: "The current type of the player"
-        type: "string"
-      volume:
-        description: "the volume of the player"
-        type: "string"
-
-
-    template: "musicplayer"
 
     constructor: (@config) ->
       @name = @config.name
@@ -153,6 +109,16 @@ module.exports = (env) ->
       _port = @config.port
 
       _state = 'stopped'
+
+      @actions = _.cloneDeep @actions
+      @attributes =  _.cloneDeep @attributes
+
+      @actions.executeOpenCommand =
+        description: "Execute custom Player.Open command"
+
+      @attributes.type =
+        description: "The current type of the player"
+        type: "string"
 
       @_connectionProvider = new ConnectionProvider(@config.host,@config.port)
 
@@ -227,29 +193,10 @@ module.exports = (env) ->
 
     _updateInfo: -> Promise.all([@_updatePlayer()])
 
-    _setState: (state) ->
-      if @_state isnt state
-        @_state = state
-        @emit 'state', state
     _setType: (type) ->
       if @_type isnt type
         @_type = type
         @emit 'type', type
-
-    _setCurrentTitle: (title) ->
-      if @_currentTitle isnt title
-        @_currentTitle = title
-        @emit 'currentTitle', title
-
-    _setCurrentArtist: (artist) ->
-      if @_currentArtist isnt artist
-        @_currentArtist = artist
-        @emit 'currentArtist', artist
-
-    _setVolume: (volume) ->
-      if @_volume isnt volume
-        @_volume = volume
-        @emit 'volume', volume
 
     _updatePlayer: () ->
       env.logger.debug '_updatePlayer'
@@ -283,6 +230,7 @@ module.exports = (env) ->
         #else
 
         @_updateInfo()
+
   class KodiExecuteOpenActionProvider extends env.actions.ActionProvider
     constructor: (@framework,@config) ->
     # ### executeAction()
@@ -344,209 +292,6 @@ module.exports = (env) ->
               console.log 'executed'
    #   )
 
-  # Pause play volume actions
-  class KodiPauseActionProvider extends env.actions.ActionProvider 
-  
-    constructor: (@framework) -> 
-    # ### executeAction()
-    ###
-    This function handles action in the form of `execute "some string"`
-    ###
-    parseAction: (input, context) =>
-
-      retVar = null
-
-      kodiPlayers = _(@framework.deviceManager.devices).values().filter( 
-        (device) => device.hasAction("play") 
-      ).value()
-
-      if kodiPlayers.length is 0 then return
-
-      device = null
-      match = null
-
-      onDeviceMatch = ( (m, d) -> device = d; match = m.getFullMatch() )
-
-      m = M(input, context)
-        .match('pause ')
-        .matchDevice(kodiPlayers, onDeviceMatch)
-        
-      if match?
-        assert device?
-        assert typeof match is "string"
-        return {
-          token: match
-          nextInput: input.substring(match.length)
-          actionHandler: new KodiPauseActionHandler(device)
-        }
-      else
-        return null
-
-  class KodiPauseActionHandler extends env.actions.ActionHandler
-
-    constructor: (@device) -> #nop
-
-    executeAction: (simulate) => 
-      return (
-        if simulate
-          Promise.resolve __("would pause %s", @device.name)
-        else
-          @device.pause().then( => __("paused %s", @device.name) )
-      )
-  
-  class KodiPlayActionProvider extends env.actions.ActionProvider 
-  
-    constructor: (@framework) -> 
-    # ### executeAction()
-    ###
-    This function handles action in the form of `execute "some string"`
-    ###
-    parseAction: (input, context) =>
-
-      retVar = null
-
-      kodiPlayers = _(@framework.deviceManager.devices).values().filter( 
-        (device) => device.hasAction("play") 
-      ).value()
-
-      if kodiPlayers.length is 0 then return
-
-      device = null
-      match = null
-
-      onDeviceMatch = ( (m, d) -> device = d; match = m.getFullMatch() )
-
-      m = M(input, context)
-        .match('play ')
-        .matchDevice(kodiPlayers, onDeviceMatch)
-        
-      if match?
-        assert device?
-        assert typeof match is "string"
-        return {
-          token: match
-          nextInput: input.substring(match.length)
-          actionHandler: new KodiPlayActionHandler(device)
-        }
-      else
-        return null
-
-  class KodiPlayActionHandler extends env.actions.ActionHandler
-
-    constructor: (@device) -> #nop
-
-    executeAction: (simulate) => 
-      return (
-        if simulate
-          Promise.resolve __("would play %s", @device.name)
-        else
-          @device.play().then( => __("playing %s", @device.name) )
-      )
-
-
-  class KodiNextActionProvider extends env.actions.ActionProvider 
-
-    constructor: (@framework) -> 
-    # ### executeAction()
-    ###
-    This function handles action in the form of `execute "some string"`
-    ###
-    parseAction: (input, context) =>
-
-      retVar = null
-      volume = null
-
-      kodiPlayers = _(@framework.deviceManager.devices).values().filter( 
-        (device) => device.hasAction("play") 
-      ).value()
-
-      if kodiPlayers.length is 0 then return
-
-      device = null
-      valueTokens = null
-      match = null
-
-      onDeviceMatch = ( (m, d) -> device = d; match = m.getFullMatch() )
-
-      m = M(input, context)
-        .match(['play next', 'next '])
-        .match(" song ", optional: yes)
-        .match("on ")
-        .matchDevice(kodiPlayers, onDeviceMatch)
-
-      if match?
-        assert device?
-        assert typeof match is "string"
-        return {
-          token: match
-          nextInput: input.substring(match.length)
-          actionHandler: new KodiNextActionHandler(device)
-        }
-      else
-        return null
-        
-  class KodiNextActionHandler extends env.actions.ActionHandler
-    constructor: (@device) -> #nop
-
-    executeAction: (simulate) => 
-      return (
-        if simulate
-          Promise.resolve __("would play next track of %s", @device.name)
-        else
-          @device.next().then( => __("play next track of %s", @device.name) )
-      )      
-
-  class KodiPrevActionProvider extends env.actions.ActionProvider 
-
-    constructor: (@framework) -> 
-    # ### executeAction()
-    ###
-    This function handles action in the form of `execute "some string"`
-    ###
-    parseAction: (input, context) =>
-
-      retVar = null
-      volume = null
-
-      kodiPlayers = _(@framework.deviceManager.devices).values().filter( 
-        (device) => device.hasAction("play") 
-      ).value()
-
-      if kodiPlayers.length is 0 then return
-
-      device = null
-      valueTokens = null
-      match = null
-
-      onDeviceMatch = ( (m, d) -> device = d; match = m.getFullMatch() )
-
-      m = M(input, context)
-        .match(['play previous', 'previous '])
-        .match(" song ", optional: yes)
-        .match("on ")
-        .matchDevice(kodiPlayers, onDeviceMatch)
-
-      if match?
-        assert device?
-        assert typeof match is "string"
-        return {
-          token: match
-          nextInput: input.substring(match.length)
-          actionHandler: new KodiNextActionHandler(device)
-        }
-      else
-        return null
-        
-  class KodiPrevActionHandler extends env.actions.ActionHandler
-    constructor: (@device) -> #nop
-
-    executeAction: (simulate) => 
-      return (
-        if simulate
-          Promise.resolve __("would play previous track of %s", @device.name)
-        else
-          @device.previous().then( => __("play previous track of %s", @device.name) )
-      ) 
   class PlayingPredicateProvider extends env.predicates.PredicateProvider
     constructor: (@framework) ->
 
