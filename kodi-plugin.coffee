@@ -26,13 +26,7 @@ module.exports = (env) ->
   M = env.matcher
   _ = env.require('lodash')
 
-
-  
-
-
-  
 #    silent: true      # comment out for debug!
-
 
   # ###KodiPlugin class
   class KodiPlugin extends env.plugins.Plugin
@@ -53,7 +47,9 @@ module.exports = (env) ->
         createCallback: (config) => new KodiPlayer(config)
       })
 
-      @framework.ruleManager.addActionProvider(new KodiExecuteOpenActionProvider(@framework,@config))
+      @framework.ruleManager.addActionProvider(
+        new KodiExecuteOpenActionProvider(@framework,@config)
+      )
       @framework.ruleManager.addPredicateProvider(new PlayingPredicateProvider(@framework))
 
   class ConnectionProvider extends EventEmitter
@@ -95,20 +91,15 @@ module.exports = (env) ->
 
   class KodiPlayer extends env.devices.AVPlayer
     _type: ""
-    _host : ""
-    _port : 0
     _connectionProvider : null
     
     kodi : null
 
-
     constructor: (@config) ->
       @name = @config.name
       @id = @config.id
-      _host = @config.host
-      _port = @config.port
 
-      _state = 'stopped'
+      @_state = 'stopped'
 
       @actions = _.cloneDeep @actions
       @attributes =  _.cloneDeep @attributes
@@ -120,7 +111,7 @@ module.exports = (env) ->
         description: "The current type of the player"
         type: "string"
 
-      @_connectionProvider = new ConnectionProvider(@config.host,@config.port)
+      @_connectionProvider = new ConnectionProvider(@config.host, @config.port)
 
       @_connectionProvider.on 'newConnection', =>
         @_connectionProvider.getConnection().then (connection) =>
@@ -149,12 +140,6 @@ module.exports = (env) ->
 
       super()
     
-    getState: () ->
-      return Promise.resolve @_state
-
-    getCurrentTitle: () -> Promise.resolve(@_currentTitle)
-    getCurrentArtist: () -> Promise.resolve(@_currentTitle)
-    getVolume: ()  -> Promise.resolve(@_volume)
     getType: () -> Promise.resolve(@_type)
     play: () -> 
       @_connectionProvider.getConnection().then (connection) =>
@@ -203,11 +188,15 @@ module.exports = (env) ->
       @_connectionProvider.getConnection().then (connection) =>
         connection.Player.GetActivePlayers().then (players) =>
           if players.length > 0
-            connection.Player.GetItem({"playerid":players[0].playerid,"properties":["title","artist"]}).then (data) =>
+            connection.Player.GetItem(
+              {"playerid":players[0].playerid,"properties":["title","artist"]}
+            ).then (data) =>
               env.logger.debug data
               info = data.item
               @_setType(info.type)
-              @_setCurrentTitle(if info.title? then info.title else if info.label? then info.label else "")
+              @_setCurrentTitle(
+                if info.title? then info.title else if info.label? then info.label else ""
+              )
               @_setCurrentArtist(if info.artist? then info.artist else "")
           else
             @_setCurrentArtist ''
@@ -278,19 +267,17 @@ module.exports = (env) ->
     constructor: (@device,@config,@name) -> #nop
 
     executeAction: (simulate) => 
-     # return (
-        if simulate
-          for command in @config.customOpenCommands
-            if command.name is @name
-              return Promise.resolve __("would execute %s", command.command)
-              console.log 'resolved'
-        else
-          for command in @config.customOpenCommands
-            env.logger.debug "checking for: #{command.name} == #{@name}"
-            if command.name is @name
-              return @device.executeOpenCommand(command.command).then( => __("executed %s", @device.name))
-              console.log 'executed'
-   #   )
+      if simulate
+        for command in @config.customOpenCommands
+          if command.name is @name
+            return Promise.resolve __("would execute %s", command.command)
+      else
+        for command in @config.customOpenCommands
+          env.logger.debug "checking for: #{command.name} == #{@name}"
+          if command.name is @name
+            return @device.executeOpenCommand(
+              command.command).then( => __("executed %s", @device.name)
+            )
 
   class PlayingPredicateProvider extends env.predicates.PredicateProvider
     constructor: (@framework) ->
