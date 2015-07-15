@@ -228,26 +228,27 @@ module.exports = (env) ->
     _updateInfo: -> Promise.all([@_updatePlayer()])
 
     _setState: (state) ->
-      if @_state isnt state
+      if typeof state is 'string' and @_state isnt state
         @_state = state
         @emit 'state', state
+
     _setType: (type) ->
-      if @_type isnt type
+      if typeof type is 'string' and @_type isnt type
         @_type = type
         @emit 'type', type
 
     _setCurrentTitle: (title) ->
-      if @_currentTitle isnt title
+      if typeof title is 'string' and @_currentTitle isnt title
         @_currentTitle = title
         @emit 'currentTitle', title
 
     _setCurrentArtist: (artist) ->
-      if @_currentArtist isnt artist
+      if typeof artist is 'string' and @_currentArtist isnt artist
         @_currentArtist = artist
         @emit 'currentArtist', artist
 
     _setVolume: (volume) ->
-      if @_volume isnt volume
+      if typeof type is 'string' and @_volume isnt volume
         @_volume = volume
         @emit 'volume', volume
 
